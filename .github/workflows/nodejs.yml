@@ -8,9 +8,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: volta-cli/action@v4
-      - run: npm ci --no-audit
-      - run: npm run lint --if-present
-      - run: npm run prettier:check --if-present
-      - run: npm test
-      - run: npm run build --if-present
+      - uses: wyvox/action-setup-pnpm@v3
+        with:
+          args: '--frozen-lockfile'
+      - run: pnpm run lint
+      - run: pnpm run prettier:check
+      - run: pnpm run test:unit
+      - run: pnpm run test:integration
+      - run: pnpm run test:e2e
+      - run: pnpm run build
+
