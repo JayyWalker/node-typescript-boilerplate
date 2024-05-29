@@ -17,7 +17,9 @@
     "dev": "tsx ./src/main.ts",
     "lint": "eslint . --ext .ts --ext .mts --ignore-pattern src/*.test.ts",
     "lint:test": "eslint . --ext .ts --ext .mts",
-    "prettier": "prettier --config .prettierrc --write .",
+    "prettier": "prettier --config .prettierrc",
+    "prettier:fix": "pnpm run prettier --write .",
+    "prettier:check": "pnpm run prettier --debug-check",
     "clean": "rimraf coverage .build tmp",
     "transpile": "tsc -p tsconfig.json",
     "transpile:watch": "tsc -w -p tsconfig.json",
@@ -25,11 +27,11 @@
     "build": "run-s lint clean transpile",
     "build:watch": "run-s lint clean transpile:watch",
     "build:release": "run-s lint clean transpile:release",
-    "jest": "jest",
-    "test:unit": "run-s lint:test jest -- --coverage",
-    "test:watch": "npm run test:unit -- --watch",
-    "test:integration": "run-s lint:test jest --config jest.config.integration.js",
-    "test:e2e": "run-s lint:test jest -- --config jest.config.e2e.js"
+    "test:run": "vitest run",
+    "test:watch": "vitest --watch",
+    "test:unit": "pnpm run test:run src",
+    "test:integration": "pnpm run test:run integration",
+    "test:e2e": "pnpm run test:run  e2e"
   },
   "dependencies": {
     "tslib": "~2.6.2"
