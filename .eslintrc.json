@@ -10,7 +10,9 @@
     "sourceType": "module",
     "ecmaVersion": 2020
   },
-  "plugins": ["@typescript-eslint"],
+  "plugins": [
+    "@typescript-eslint"
+  ],
   "extends": [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
@@ -25,11 +27,13 @@
   },
   "overrides": [
     {
-      "files": ["*.test.ts"],
-      "plugins": ["vitest"],
-      "extends": ["plugin:vitest/recommended"],
-      "rules": {
-      }
+      "files": [
+        "src/**/*.test.ts",
+        "__tests_/**/*.test.ts"
+      ],
+      "plugins": [
+        "vitest"
+      ]
     }
   ]
 }
