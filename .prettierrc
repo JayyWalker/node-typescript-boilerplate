@@ -1,13 +1,6 @@
 {
+  "parser": "typescript",
   "singleQuote": true,
   "trailingComma": "all",
-  "semi": false,
-  "overrides": [
-    {
-      "files": ["*.ts", "*.mts"],
-      "options": {
-        "parser": "typescript"
-      }
-    }
-  ]
+  "semi": false
 }

@@ -1,34 +1,28 @@
-import { describe, expect, jest, it, beforeAll, afterAll } from '@jest/globals';
-import { Delays, greeter } from './main';
+import { describe, it, afterEach, beforeEach, vi, expect } from 'vitest';
+import { Delays, greeter } from './main.js';
 
 describe('greeter function', () => {
   const name = 'John';
-  let hello: string;
 
-  let timeoutSpy: jest.Spied<typeof global.setTimeout>;
-
-  // Act before assertions
-  beforeAll(async () => {
+  beforeEach(() => {
     // Read more about fake timers
-    // http://facebook.github.io/jest/docs/en/timer-mocks.html#content
-    // Jest 27 now uses "modern" implementation of fake timers
-    // https://jestjs.io/blog/2021/05/25/jest-27#flipping-defaults
-    // https://github.com/facebook/jest/pull/5171
-    jest.useFakeTimers();
-    timeoutSpy = jest.spyOn(global, 'setTimeout');
-
-    const p: Promise<string> = greeter(name);
-    jest.runOnlyPendingTimers();
-    hello = await p;
+    // https://vitest.dev/api/vi.html#vi-usefaketimers
+    vi.useFakeTimers();
   });
 
-  // Teardown (cleanup) after assertions
-  afterAll(() => {
-    timeoutSpy.mockRestore();
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   // Assert if setTimeout was called properly
-  it('delays the greeting by 2 seconds', () => {
+  it('delays the greeting by 2 seconds', async () => {
+    vi.spyOn(global, 'setTimeout');
+    const p = greeter(name);
+
+    await vi.runAllTimersAsync();
+    await p;
+
     expect(setTimeout).toHaveBeenCalledTimes(1);
     expect(setTimeout).toHaveBeenLastCalledWith(
       expect.any(Function),
@@ -37,7 +31,10 @@ describe('greeter function', () => {
   });
 
   // Assert greeter result
-  it('greets a user with `Hello, {name}` message', () => {
-    expect(hello).toBe(`Hello, ${name}`);
+  it('greets a user with `Hello, {name}` message', async () => {
+    const p = greeter(name);
+    await vi.runAllTimersAsync();
+
+    expect(await p).toBe(`Hello, ${name}`);
   });
 });

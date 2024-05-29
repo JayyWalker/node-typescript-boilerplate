@@ -25,14 +25,9 @@
   },
   "overrides": [
     {
-      "settings": {
-        "jest": {
-          "version": 29
-        }
-      },
       "files": ["*.test.ts"],
-      "plugins": ["jest"],
-      "extends": ["plugin:jest/recommended"],
+      "plugins": ["vitest"],
+      "extends": ["plugin:vitest/recommended"],
       "rules": {
       }
     }
