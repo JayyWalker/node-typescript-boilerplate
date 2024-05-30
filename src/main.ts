@@ -20,7 +20,7 @@ function delayedHello(
 ): Promise<string | undefined> {
   return new Promise((resolve: (value?: string) => void) =>
     setTimeout(() => resolve(`Hello, ${name}`), delay),
-  );
+  )
 }
 
 // Please see the comment in the .eslintrc.json file about the suppressed rule!
@@ -30,5 +30,5 @@ function delayedHello(
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/no-explicit-any
 export async function greeter(name: any) {
   // The name parameter should be of type string. Any is used only to trigger the rule.
-  return await delayedHello(name, Delays.Long);
+  return await delayedHello(name, Delays.Long)
 }
