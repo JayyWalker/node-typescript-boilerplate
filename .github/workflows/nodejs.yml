@@ -16,5 +16,5 @@ jobs:
       - run: pnpm run test:unit
       - run: pnpm run test:integration
       - run: pnpm run test:e2e
-      - run: pnpm run build
+      - run: pnpm run build:release
 
