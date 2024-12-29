@@ -33,6 +33,7 @@
     "test:e2e": "pnpm run test:run  e2e"
   },
   "dependencies": {
+    "@octokit/rest": "^21.0.2",
     "tslib": "~2.6.2"
   },
   "devDependencies": {
