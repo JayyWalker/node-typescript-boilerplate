@@ -1,34 +1,153 @@
-/**
- * Some predefined delay values (in milliseconds).
- */
-export enum Delays {
-  Short = 500,
-  Medium = 2000,
-  Long = 5000,
+import { Octokit } from "@octokit/rest";
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
+const REPO_OWNER = "jayywalker";
+const REPO_NAME = "craftwriter";
+const STORIES_FOLDER = path.resolve(__dirname, '../', "./stories");
+const TRACKING_FILE = path.resolve(__dirname, '../', "./stories/.pushed_stories.json");
+
+if (!GITHUB_TOKEN) {
+  console.error("GitHub token is not set. Please provide it as an environment variable.");
+  process.exit(1);
 }
+
+const octokit = new Octokit({ auth: GITHUB_TOKEN });
 
 /**
- * Returns a Promise<string> that resolves after a given time.
- *
- * @param {string} name - A name.
- * @param {number=} [delay=Delays.Medium] - A number of milliseconds to delay resolution of the Promise.
- * @returns {Promise<string>}
+ * Loads tracking data from the tracking file, or initializes an empty object if the file doesn't exist.
+ * @returns Record<string, string> - A mapping of file paths to their respective hash values.
  */
-function delayedHello(
-  name: string,
-  delay: number = Delays.Medium,
-): Promise<string | undefined> {
-  return new Promise((resolve: (value?: string) => void) =>
-    setTimeout(() => resolve(`Hello, ${name}`), delay),
-  )
+function loadTrackingData(): Record<string, string> {
+  if (fs.existsSync(TRACKING_FILE)) {
+    return JSON.parse(fs.readFileSync(TRACKING_FILE, "utf8"));
+  }
+  return {};
 }
 
-// Please see the comment in the .eslintrc.json file about the suppressed rule!
-// Below is an example of how to use ESLint errors suppression. You can read more
-// at https://eslint.org/docs/latest/user-guide/configuring/rules#disabling-rules
-
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type, @typescript-eslint/no-explicit-any
-export async function greeter(name: any) {
-  // The name parameter should be of type string. Any is used only to trigger the rule.
-  return await delayedHello(name, Delays.Long)
+/**
+ * Saves tracking data to the tracking file.
+ * @param data - The tracking data mapping file paths to hash values.
+ */
+function saveTrackingData(data: Record<string, string>): void {
+  fs.writeFileSync(TRACKING_FILE, JSON.stringify(data, null, 2));
 }
+
+/**
+ * Computes a SHA-256 hash for the content of a file.
+ * @param filePath - The path of the file to hash.
+ * @returns string - The computed hash value.
+ */
+function getFileHash(filePath: string): string {
+  const content = fs.readFileSync(filePath, "utf8");
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+/**
+ * Extracts the issue data (title, labels, and body) from a markdown file.
+ * @param fileContent - The content of the markdown file.
+ * @returns { title: string; labels: string[]; body: string } - Extracted issue data.
+ */
+function parseStoryFile(fileContent: string): { title: string; labels: string[]; body: string } {
+  const lines = fileContent.split("\n");
+
+  let title = "";
+  const labels: string[] = [];
+  const body: string[] = [];
+  let isBodySection = false;
+
+  for (const line of lines) {
+    // console.log(line.startsWith('# ') ? console.log(line) : undefined);
+    if (line.startsWith("# ")) {
+      const headline = lines[lines.indexOf(line)]?.trim() || "";
+
+      title = headline.slice(2).trim();
+    } else if (line.startsWith("## Labels")) {
+      const labelLines = lines.slice(lines.indexOf(line) + 1);
+      for (const lbl of labelLines) {
+        if (lbl.trim().startsWith("-") && lbl.trim().length > 1) {
+          labels.push(lbl.replace(/^-\s*/, "").trim());
+        } else {
+          break;
+        }
+      }
+    } else if (line.startsWith("## ")) {
+      isBodySection = true;
+    }
+
+    if (isBodySection && !line.startsWith("#")) {
+      body.push(line);
+    }
+  }
+
+  return { title, labels, body: body.join("\n").trim() };
+}
+
+/**
+ * Pushes a story from a markdown file to GitHub as an issue.
+ * @param filePath - The path of the markdown file.
+ * @param trackingData - The record of previously pushed files and their hash values.
+ */
+async function pushStoryToGithub(filePath: string, trackingData: Record<string, string>): Promise<void> {
+  const fileContent = fs.readFileSync(filePath, "utf8");
+  const fileHash = getFileHash(filePath);
+
+  if (trackingData[filePath] === fileHash) {
+    console.log(`No changes detected for file: ${filePath}`);
+    return;
+  }
+
+  const { title, labels, body } = parseStoryFile(fileContent);
+
+  if (!title || !body) {
+    console.error(`Invalid story structure in file: ${filePath}`);
+    return;
+  }
+
+  try {
+    const response = await octokit.rest.issues.create({
+      owner: REPO_OWNER,
+      repo: REPO_NAME,
+      title,
+      body,
+      labels,
+    });
+
+    console.log(`Created issue #${response.data.number}: ${response.data.html_url}`);
+
+    trackingData[filePath] = fileHash;
+    saveTrackingData(trackingData);
+  } catch (error) {
+    console.error(`Failed to create issue for file: ${filePath}`, error);
+  }
+}
+
+/**
+ * Processes all markdown files in the stories folder, pushing them as issues if needed.
+ */
+function processStories(): void {
+  const trackingData = loadTrackingData();
+
+  const files = fs
+    .readdirSync(STORIES_FOLDER)
+    .filter((file) => file.endsWith(".md"));
+
+  if (files.length === 0) {
+    console.log("No markdown files found in the stories folder.");
+    return;
+  }
+
+  files.forEach((file) => {
+    const filePath = path.join(STORIES_FOLDER, file);
+    pushStoryToGithub(filePath, trackingData);
+  });
+}
+
+processStories();
