@@ -1,153 +1,229 @@
-import { Octokit } from "@octokit/rest";
-import fs from "fs";
-import path from "path";
-import crypto from "crypto";
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { fileURLToPath } from 'url'
+import path, { dirname, resolve, join } from 'path'
+import fs from 'fs'
+import crypto from 'crypto'
+import { Octokit } from '@octokit/rest'
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// THE TYPES
+type Maybe<T> = T | undefined | null;
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
-const REPO_OWNER = "jayywalker";
-const REPO_NAME = "craftwriter";
-const STORIES_FOLDER = path.resolve(__dirname, '../', "./stories");
-const TRACKING_FILE = path.resolve(__dirname, '../', "./stories/.pushed_stories.json");
+type FilePath = string
 
-if (!GITHUB_TOKEN) {
-  console.error("GitHub token is not set. Please provide it as an environment variable.");
-  process.exit(1);
+type ParsedStory = {
+  title: string;
+  labels: string[];
+  milestone?: string | number;
+  body: string;
 }
 
-const octokit = new Octokit({ auth: GITHUB_TOKEN });
+type PushedStory = {
+  issueNumber: number;
+}
 
-/**
- * Loads tracking data from the tracking file, or initializes an empty object if the file doesn't exist.
- * @returns Record<string, string> - A mapping of file paths to their respective hash values.
- */
-function loadTrackingData(): Record<string, string> {
-  if (fs.existsSync(TRACKING_FILE)) {
-    return JSON.parse(fs.readFileSync(TRACKING_FILE, "utf8"));
+type TrackingEntryParams = {
+  hash: string
+  filePath: string
+  issueNumber: number
+}
+
+type TrackedDataEntry = { issueNumber: number; hash: string }
+
+type TrackedData = Record<FilePath, TrackedDataEntry>;
+
+// UTILITIES
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+// CONSTANTS
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || ''
+const REPO_OWNER = 'jayywalker'
+const REPO_NAME = 'craftwriter'
+const STORIES_FOLDER = resolve(__dirname, '../', './stories')
+const TRACKING_FILE = resolve(
+  __dirname,
+  '../',
+  './stories/.pushed_stories.json',
+)
+
+const octokit = new Octokit({ auth: GITHUB_TOKEN })
+
+if ( !GITHUB_TOKEN) {
+  console.error('GitHub token is not set. Please provide it as an environment variable.')
+  process.exit(1)
+}
+
+function scanForStories (): FilePath[] {
+  const files = fs
+    .readdirSync(STORIES_FOLDER)
+    .filter((file) => file.endsWith('.md'))
+    .map((file) => join(STORIES_FOLDER, file))
+
+  if (files.length === 0) {
+    console.log('No markdown files found in the stories folder.')
+
+    return []
   }
-  return {};
+
+  return files
 }
 
-/**
- * Saves tracking data to the tracking file.
- * @param data - The tracking data mapping file paths to hash values.
- */
-function saveTrackingData(data: Record<string, string>): void {
-  fs.writeFileSync(TRACKING_FILE, JSON.stringify(data, null, 2));
-}
+function parseStoryFile (fileContent: string): ParsedStory {
 
-/**
- * Computes a SHA-256 hash for the content of a file.
- * @param filePath - The path of the file to hash.
- * @returns string - The computed hash value.
- */
-function getFileHash(filePath: string): string {
-  const content = fs.readFileSync(filePath, "utf8");
-  return crypto.createHash("sha256").update(content).digest("hex");
-}
+  const lines = fileContent.split('\n')
 
-/**
- * Extracts the issue data (title, labels, and body) from a markdown file.
- * @param fileContent - The content of the markdown file.
- * @returns { title: string; labels: string[]; body: string } - Extracted issue data.
- */
-function parseStoryFile(fileContent: string): { title: string; labels: string[]; body: string } {
-  const lines = fileContent.split("\n");
-
-  let title = "";
-  const labels: string[] = [];
-  const body: string[] = [];
-  let isBodySection = false;
+  let title = ''
+  const labels: string[] = []
+  const body: string[] = []
+  let milestone: string | undefined = undefined;
+  let isBodySection = false
+  let isLabelSection = false
 
   for (const line of lines) {
-    // console.log(line.startsWith('# ') ? console.log(line) : undefined);
-    if (line.startsWith("# ")) {
-      const headline = lines[lines.indexOf(line)]?.trim() || "";
+    // Get Headline
+    if (line.startsWith('# ')) {
+      const headline = lines[lines.indexOf(line)]?.trim() || ''
 
-      title = headline.slice(2).trim();
-    } else if (line.startsWith("## Labels")) {
-      const labelLines = lines.slice(lines.indexOf(line) + 1);
-      for (const lbl of labelLines) {
-        if (lbl.trim().startsWith("-") && lbl.trim().length > 1) {
-          labels.push(lbl.replace(/^-\s*/, "").trim());
+      title = headline.slice(2).trim()
+    }
+
+    // Get Labels
+    if (line.startsWith('## Labels')) {
+      isLabelSection = line.startsWith('## Labels')
+    }
+
+    if (isLabelSection && !line.startsWith('#')) {
+      const labelLine = line.trim()
+
+      if (labelLine.startsWith('-')) {
+        const label = labelLine.replace(/^-\s*/, '')
+
+        if (label === 'core-feature') {
+          milestone = '1';
+          labels.push('mvp')
         } else {
-          break;
+          labels.push(label)
         }
       }
-    } else if (line.startsWith("## ")) {
-      isBodySection = true;
     }
 
-    if (isBodySection && !line.startsWith("#")) {
-      body.push(line);
+    // New section so let's reset isLabelSection
+    if (isLabelSection && line.startsWith('#') && !line.startsWith('## Labels')) {
+      isLabelSection = false
+    }
+
+    // Get Body Section
+    if (line.startsWith('## ') && !line.startsWith('## Labels')) {
+      isBodySection = true
+      line.startsWith('## ')
+    }
+
+    if (isBodySection) {
+      body.push(line)
+    }
+
+    // EOF
+    if (lines.indexOf(line) === lines.length - 1) {
+      isBodySection = false
     }
   }
 
-  return { title, labels, body: body.join("\n").trim() };
+  const parsedBody: ParsedStory = {
+    title,
+    labels,
+    milestone,
+    body: body.join('\n').trim(),
+  }
+
+  return parsedBody
 }
 
-/**
- * Pushes a story from a markdown file to GitHub as an issue.
- * @param filePath - The path of the markdown file.
- * @param trackingData - The record of previously pushed files and their hash values.
- */
-async function pushStoryToGithub(filePath: string, trackingData: Record<string, string>): Promise<void> {
-  const fileContent = fs.readFileSync(filePath, "utf8");
-  const fileHash = getFileHash(filePath);
+function getFileHash (fileContent: string): string {
+  return crypto.createHash('sha256').update(fileContent).digest('hex')
+}
 
-  if (trackingData[filePath] === fileHash) {
-    console.log(`No changes detected for file: ${filePath}`);
-    return;
-  }
-
-  const { title, labels, body } = parseStoryFile(fileContent);
-
-  if (!title || !body) {
-    console.error(`Invalid story structure in file: ${filePath}`);
-    return;
-  }
-
-  try {
-    const response = await octokit.rest.issues.create({
+async function pushStoryToGithub ({ title, body, labels, milestone }: ParsedStory, trackedData?: TrackedDataEntry): Promise<PushedStory> {
+  if (trackedData) {
+    const response = await octokit.rest.issues.update({
       owner: REPO_OWNER,
       repo: REPO_NAME,
+      issue_number: trackedData.issueNumber,
       title,
       body,
       labels,
-    });
+      milestone: milestone || null,
+    })
 
-    console.log(`Created issue #${response.data.number}: ${response.data.html_url}`);
+    return {
+      issueNumber: response.data.number,
+    }
+  }
 
-    trackingData[filePath] = fileHash;
-    saveTrackingData(trackingData);
-  } catch (error) {
-    console.error(`Failed to create issue for file: ${filePath}`, error);
+  const response = await octokit.rest.issues.create({
+    owner: REPO_OWNER,
+    repo: REPO_NAME,
+    title,
+    body,
+    labels,
+    milestone: milestone || null,
+  })
+
+  console.log(`Created issue #${response.data.number}: ${response.data.html_url}`)
+
+  return {
+    issueNumber: response.data.number,
   }
 }
 
-/**
- * Processes all markdown files in the stories folder, pushing them as issues if needed.
- */
-function processStories(): void {
-  const trackingData = loadTrackingData();
+function updateTrackingData(original: TrackedData, { filePath, issueNumber, hash}: TrackingEntryParams): void {
+  const trackedFileName = getTrackedFileName(filePath)
 
-  const files = fs
-    .readdirSync(STORIES_FOLDER)
-    .filter((file) => file.endsWith(".md"));
+  original[trackedFileName] = {issueNumber, hash}
 
-  if (files.length === 0) {
-    console.log("No markdown files found in the stories folder.");
-    return;
-  }
+  fs.writeFileSync(TRACKING_FILE, JSON.stringify(original, null, 2))
 
-  files.forEach((file) => {
-    const filePath = path.join(STORIES_FOLDER, file);
-    pushStoryToGithub(filePath, trackingData);
-  });
+  console.log(`Updated tracking data: ${trackedFileName} -> ${issueNumber} - ${hash}`)
 }
 
-processStories();
+function loadTrackingData(): TrackedData {
+  return fs.existsSync(TRACKING_FILE)
+    ? JSON.parse(fs.readFileSync(TRACKING_FILE, "utf8"))
+    : {}
+}
+
+function getTrackedFileName(filepath: string): string {
+  return path.parse(filepath).base
+}
+
+async function main (): Promise<void> {
+  const filePaths = scanForStories()
+
+  const trackingData = loadTrackingData()
+
+  for( const filePath of filePaths ) {
+    const trackedData = trackingData[getTrackedFileName(filePath)]
+
+    const fileContent = fs.readFileSync(filePath, 'utf8')
+
+    const fileHash = getFileHash(fileContent)
+
+    if (trackedData?.hash === fileHash) {
+      console.log(`${getTrackedFileName(filePath)} already updated`)
+      continue;
+    }
+
+    const parsedStory = parseStoryFile(fileContent)
+
+    const { title, body } = parsedStory
+
+    if (!title || !body) {
+      console.error(`Invalid story structure in file: ${filePath}`);
+      continue;
+    }
+
+    const { issueNumber } = await pushStoryToGithub(parsedStory, trackedData)
+
+    updateTrackingData(trackingData, { hash: fileHash, issueNumber, filePath });
+  }
+}
+
+main()
